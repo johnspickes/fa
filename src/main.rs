@@ -7,6 +7,10 @@ use std::fs::File;
 use regex::Regex;
 use std::io::Write;
 
+struct Options {
+    restart_on_find : bool
+}
+
 fn main() {
     // Parse the command line using clap
     let matches = App::new("fa")
@@ -20,6 +24,9 @@ fn main() {
         .arg(Arg::with_name("INPUT")
              .help("The file/pipe to use as input.  If omitted, stdin is used")
              .index(2))
+        .arg(Arg::with_name("restart_on_find")
+             .help("Restart display each time REGEX is found again, without waiting for the screen to fill")
+             .short("r"))
         .get_matches();
 
     // Unwrapping is appropriate here because REGEX is a required
@@ -27,19 +34,25 @@ fn main() {
     let regex_str = matches.value_of("REGEX").unwrap();
     let regex = Regex::new(regex_str).unwrap();
 
+    let restart_on_find = matches.is_present("restart_on_find");
+
+    let opt = Options {
+        restart_on_find: restart_on_find
+    };
+
     match matches.value_of("INPUT") {
         Some(filename) => {
             if let Ok(f) = File::open(filename) {
                 println!("Processing on file {}", filename);
                 let mut reader = std::io::BufReader::new(f);
-                search_and_display(&mut reader, &regex);
+                search_and_display(&mut reader, &regex, opt);
             } else {
                 println!("Unable to open {}", filename)
             }
         }
         _ => {
             println!("Using stdin");
-            search_and_display(&mut std::io::stdin().lock(), &regex);
+            search_and_display(&mut std::io::stdin().lock(), &regex, opt);
         }
     }
 }
@@ -51,7 +64,8 @@ enum State {
     Printing
 }
 
-fn search_and_display<T: std::io::BufRead>(input: &mut T, regex: &Regex) {
+fn search_and_display<T: std::io::BufRead>(input: &mut T, regex: &Regex,
+                                           opt: Options) {
     let mut term = console::Term::stdout();
     let (rows, _cols) = term.size();
     term.clear_screen().unwrap();
@@ -82,6 +96,10 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, regex: &Regex) {
                     } else {
                         // Printing
                         // println!("printing: {} on line {} of {}", l, current_row, rows);
+                        if opt.restart_on_find && regex.is_match(&l) {
+                            term.move_cursor_to(0, 0).unwrap();
+                            current_row = 0;
+                        }
                         term.clear_line().unwrap();
                         term.write(l.as_bytes()).unwrap();
                         current_row += 1;
