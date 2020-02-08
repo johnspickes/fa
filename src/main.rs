@@ -8,7 +8,9 @@ use regex::Regex;
 use std::io::Write;
 
 struct Options {
-    restart_on_find : bool
+    restart_on_find : bool,
+    use_lines : bool,
+    lines_to_use : i32,
 }
 
 fn main() {
@@ -26,7 +28,13 @@ fn main() {
              .index(2))
         .arg(Arg::with_name("restart_on_find")
              .help("Restart display each time REGEX is found again, without waiting for the screen to fill")
+             .long("restart_on_find")
              .short("r"))
+        .arg(Arg::with_name("LINES")
+             .help("Use the specified number of lines to display, instead of clearing the screen and using it all")
+             .long("use_lines")
+             .short("l")
+             .takes_value(true))
         .get_matches();
 
     // Unwrapping is appropriate here because REGEX is a required
@@ -36,14 +44,21 @@ fn main() {
 
     let restart_on_find = matches.is_present("restart_on_find");
 
+    let use_lines = matches.is_present("LINES");
+    let lines: i32 = if use_lines {
+        // TODO Better error handling
+        matches.value_of("LINES").unwrap().parse().unwrap() 
+    } else { 0 };
+
     let opt = Options {
-        restart_on_find: restart_on_find
+        restart_on_find: restart_on_find,
+        use_lines: use_lines,
+        lines_to_use: lines,
     };
 
     match matches.value_of("INPUT") {
         Some(filename) => {
             if let Ok(f) = File::open(filename) {
-                println!("Processing on file {}", filename);
                 let mut reader = std::io::BufReader::new(f);
                 search_and_display(&mut reader, &regex, opt);
             } else {
@@ -51,7 +66,6 @@ fn main() {
             }
         }
         _ => {
-            println!("Using stdin");
             search_and_display(&mut std::io::stdin().lock(), &regex, opt);
         }
     }
@@ -68,11 +82,20 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, regex: &Regex,
                                            opt: Options) {
     let mut term = console::Term::stdout();
     let (rows, _cols) = term.size();
-    term.clear_screen().unwrap();
+
+    if !opt.use_lines {
+        term.clear_screen().unwrap();
+    }
 
     let mut current_row = 0;
 
     let mut st = State::Finding;
+
+    let rows_to_use = if opt.use_lines {
+        opt.lines_to_use as usize
+    } else {
+        rows as usize
+    };
 
     loop {
         let mut l = String::new();
@@ -84,9 +107,13 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, regex: &Regex,
                     if st == State::Finding {
                         // Finding
                         if regex.is_match(&l) {
-                            // println!("match: {}", l);
                             // Found.  Go to top of screen and print.
-                            term.move_cursor_to(0, 0).unwrap();
+                            if opt.use_lines {
+                                term.move_cursor_up(current_row).unwrap();
+                            } else {
+                                term.move_cursor_to(0, 0).unwrap();
+                            }
+                            current_row = 0;
                             term.clear_line().unwrap();
                             term.write(l.as_bytes()).unwrap();
                             // Change to Printing state
@@ -95,18 +122,20 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, regex: &Regex,
                         } 
                     } else {
                         // Printing
-                        // println!("printing: {} on line {} of {}", l, current_row, rows);
                         if opt.restart_on_find && regex.is_match(&l) {
-                            term.move_cursor_to(0, 0).unwrap();
+                            if opt.use_lines {
+                                term.move_cursor_up(current_row).unwrap();
+                            } else {
+                                term.move_cursor_to(0, 0).unwrap();
+                            }
                             current_row = 0;
                         }
                         term.clear_line().unwrap();
                         term.write(l.as_bytes()).unwrap();
                         current_row += 1;
                         // Have we reached the end of the screen?
-                        if current_row >= rows {
+                        if current_row >= rows_to_use {
                             // Go back to finding
-                            current_row = 0;
                             st = State::Finding;
                         }
                     }
