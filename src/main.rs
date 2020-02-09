@@ -10,7 +10,21 @@ use std::io::Write;
 struct Options {
     restart_on_find : bool,
     use_lines : bool,
-    lines_to_use : i32,
+    lines_to_use : u32,
+}
+
+fn u32_validator(s: String) -> Result<(), String> {
+    match s.parse::<u32>() {
+        Ok(_) => Ok(()),
+        Err(_) => Err(String::from("Argument must be a non-negative integer")),
+    }
+}
+
+fn regex_validator(s: String) -> Result<(), String> {
+    match Regex::new(&s) {
+        Ok(_) => Ok(()),
+        Err(_) => Err(String::from("Invalid regular expression")),
+    }
 }
 
 fn main() {
@@ -22,6 +36,7 @@ fn main() {
         .arg(Arg::with_name("REGEX")
              .help("Regular expression to find in the input")
              .required(true)
+             .validator(regex_validator)
              .index(1))
         .arg(Arg::with_name("INPUT")
              .help("The file/pipe to use as input.  If omitted, stdin is used")
@@ -34,20 +49,23 @@ fn main() {
              .help("Use the specified number of lines to display, instead of clearing the screen and using it all")
              .long("use_lines")
              .short("l")
+             .validator(u32_validator)
              .takes_value(true))
         .get_matches();
 
     // Unwrapping is appropriate here because REGEX is a required
     // argument and we shouldn't get here if it's not present.
     let regex_str = matches.value_of("REGEX").unwrap();
+    // regex has already been validated by clap, so unwrap is safe
     let regex = Regex::new(regex_str).unwrap();
 
     let restart_on_find = matches.is_present("restart_on_find");
 
     let use_lines = matches.is_present("LINES");
-    let lines: i32 = if use_lines {
-        // TODO Better error handling
-        matches.value_of("LINES").unwrap().parse().unwrap() 
+    let lines: u32 = if use_lines {
+        // Both unwraps are safe because we know use_lines is present, and
+        // the argument is validated by clap.
+        matches.value_of("LINES").unwrap().parse().unwrap()
     } else { 0 };
 
     let opt = Options {
@@ -62,7 +80,7 @@ fn main() {
                 let mut reader = std::io::BufReader::new(f);
                 search_and_display(&mut reader, &regex, opt);
             } else {
-                println!("Unable to open {}", filename)
+                eprintln!("Unable to open {}", filename);
             }
         }
         _ => {
@@ -122,7 +140,7 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, regex: &Regex,
                         } else { l };
                         term.write(print_string.as_bytes()).unwrap();
                         current_row += 1;
-                        // Have we reached the end of the screen?
+                        // Have we reached the end of the usable space?
                         if current_row >= rows_to_use {
                             // Go back to finding
                             st = State::Finding;
@@ -131,7 +149,7 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, regex: &Regex,
                 }
             },
             Err(e) => {
-                println!("Error: {:?}", e);
+                eprintln!("Error: {:?}", e);
             }
         }
     }
