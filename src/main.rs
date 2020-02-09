@@ -81,7 +81,7 @@ enum State {
 fn search_and_display<T: std::io::BufRead>(input: &mut T, regex: &Regex,
                                            opt: Options) {
     let mut term = console::Term::stdout();
-    let (rows, _cols) = term.size();
+    let (rows, cols) = term.size();
 
     if !opt.use_lines {
         term.clear_screen().unwrap();
@@ -94,7 +94,8 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, regex: &Regex,
     let rows_to_use = if opt.use_lines {
         opt.lines_to_use as usize
     } else {
-        rows as usize
+        // Using rows-1 prevents the screen from scrolling when we reach the last line
+        (rows-1) as usize
     };
 
     loop {
@@ -102,36 +103,24 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, regex: &Regex,
         match input.read_line(&mut l) {
             Ok(n) => {
                 if n == 0 {
+                    // This indicates EOF
                     break;
                 } else {
-                    if st == State::Finding {
-                        // Finding
-                        if regex.is_match(&l) {
-                            // Found.  Go to top of screen and print.
-                            if opt.use_lines {
-                                term.move_cursor_up(current_row).unwrap();
-                            } else {
-                                term.move_cursor_to(0, 0).unwrap();
-                            }
-                            current_row = 0;
-                            term.clear_line().unwrap();
-                            term.write(l.as_bytes()).unwrap();
-                            // Change to Printing state
-                            st = State::Printing;
-                            current_row += 1;
-                        } 
-                    } else {
-                        // Printing
-                        if opt.restart_on_find && regex.is_match(&l) {
-                            if opt.use_lines {
-                                term.move_cursor_up(current_row).unwrap();
-                            } else {
-                                term.move_cursor_to(0, 0).unwrap();
-                            }
-                            current_row = 0;
-                        }
+                    // Got a line.
+                    // If finding, or restarting on new finds, check for match
+                    if ((st == State::Finding) || opt.restart_on_find) && regex.is_match(&l) {
+                        // Move back up to the row where we started
+                        term.move_cursor_up(current_row).unwrap();
+                        current_row = 0;
+                        st = State::Printing;
+                    }
+
+                    if st == State::Printing {
                         term.clear_line().unwrap();
-                        term.write(l.as_bytes()).unwrap();
+                        let print_string: String = if l.chars().count() >= cols as usize {
+                            l.chars().take((cols-1) as usize).collect::<String>() + "\n"
+                        } else { l };
+                        term.write(print_string.as_bytes()).unwrap();
                         current_row += 1;
                         // Have we reached the end of the screen?
                         if current_row >= rows_to_use {
