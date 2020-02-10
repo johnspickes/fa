@@ -11,3 +11,5 @@ This is a work in progress.  Things to do:
 
 - Allow the position of the matching line to be displayed at a selectable
   position on the display.
+- Support searching for multiple regexes, displaying data for each in different
+  sections of the screen.
