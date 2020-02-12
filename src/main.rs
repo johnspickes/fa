@@ -118,6 +118,7 @@ impl Cursor {
         }
     }
 
+    #[allow(dead_code)]
     fn move_up(&mut self, term: &mut console::Term, rows: i32) -> std::io::Result<()> {
         self.move_down(term, -rows)
     }
@@ -127,8 +128,8 @@ impl Cursor {
         self.move_down(term, delta)
     }
 
-    fn home(&mut self, term: &mut console::Term) -> std::io::Result<()> {
-        self.move_to(term, 0)
+    fn advance(&mut self) {
+        self.row += 1;
     }
 }
 
@@ -155,7 +156,7 @@ impl Space {
     /// bump up the current row
     fn advance(&mut self, c: &mut Cursor) {
         self.current += 1;
-        c.row += 1;
+        c.advance();
     }
 
     /// Go to the current row
@@ -212,7 +213,7 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, opt: Options) {
         for i in 0..display_spaces.len() - 1 {
             crsr.move_to(&mut term, display_spaces[i].end + 1).unwrap();
             term.write(dashed_line.as_bytes()).unwrap();
-            crsr.row += 1;
+            crsr.advance();
         }
     }
 
