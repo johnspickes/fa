@@ -153,8 +153,9 @@ impl Space {
     }
 
     /// bump up the current row
-    fn advance(&mut self) {
+    fn advance(&mut self, c: &mut Cursor) {
         self.current += 1;
+        c.row += 1;
     }
 
     /// Go to the current row
@@ -195,7 +196,7 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, opt: Options) {
     for i in 0..opt.regexes.len() {
         display_spaces.push(Space {
             start: next_line,
-            end: next_line + (lines_per_space as i32) + if i == opt.regexes.len() - 1 { 0 } else { -1 },
+            end: next_line + (lines_per_space as i32) + if i == opt.regexes.len() - 1 { -1 } else { -2 },
             current: 0,
         });
         next_line += lines_per_space as i32;
@@ -239,7 +240,7 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, opt: Options) {
                                 l.clone()
                             };
                             term.write(print_string.as_bytes()).unwrap();
-                            display_spaces[i].advance();
+                            display_spaces[i].advance(&mut crsr);
                             // Have we reached the end of the usable space?
                             if display_spaces[i].past_end() {
                                 // Go back to finding
