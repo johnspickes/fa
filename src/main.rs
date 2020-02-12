@@ -208,9 +208,11 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, opt: Options) {
         for _ in 0..cols {
             dashed_line.push('-');
         }
+        dashed_line.push('\n');
         for i in 0..display_spaces.len() - 1 {
             crsr.move_to(&mut term, display_spaces[i].end + 1).unwrap();
             term.write(dashed_line.as_bytes()).unwrap();
+            crsr.row += 1;
         }
     }
 
