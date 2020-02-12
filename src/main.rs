@@ -31,7 +31,7 @@ fn regex_validator(s: String) -> Result<(), String> {
 fn main() {
     // Parse the command line using clap
     let matches = App::new("fa")
-        .version("0.1.0")
+        .version("0.2.0")
         .author("John Spickes <john@spickes.net>")
         .about("Human-friendly wall-of-text handler")
         .arg(Arg::with_name("REGEX")

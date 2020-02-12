@@ -1,6 +1,6 @@
 [package]
 name = "fa"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["John Spickes <john@spickes.net>"]
 edition = "2018"
 
