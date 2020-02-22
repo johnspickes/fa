@@ -197,19 +197,22 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, opt: Options) {
     for i in 0..opt.regexes.len() {
         display_spaces.push(Space {
             start: next_line,
-            end: next_line + (lines_per_space as i32) + if i == opt.regexes.len() - 1 { -1 } else { -2 },
+            end: next_line
+                + (lines_per_space as i32)
+                + if i == opt.regexes.len() - 1 { -1 } else { -2 },
             current: 0,
         });
         next_line += lines_per_space as i32;
     }
 
+    let mut dashed_line = String::new();
+    for _ in 0..cols {
+        dashed_line.push('-');
+    }
+    dashed_line.push('\n');
+
     // Draw dashed lines, if needed, to separate spaces
     if display_spaces.len() > 1 {
-        let mut dashed_line = String::new();
-        for _ in 0..cols {
-            dashed_line.push('-');
-        }
-        dashed_line.push('\n');
         for i in 0..display_spaces.len() - 1 {
             crsr.move_to(&mut term, display_spaces[i].end + 1).unwrap();
             term.write(dashed_line.as_bytes()).unwrap();
@@ -248,6 +251,12 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, opt: Options) {
                             if display_spaces[i].past_end() {
                                 // Go back to finding
                                 st[i] = State::Finding;
+                                if i != display_spaces.len() - 1 {
+                                    // draw the dashed line again
+                                    crsr.move_to(&mut term, display_spaces[i].end + 1).unwrap();
+                                    term.write(dashed_line.as_bytes()).unwrap();
+                                    crsr.advance();
+                                }
                             }
                         }
                     }
