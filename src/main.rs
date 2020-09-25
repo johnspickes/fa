@@ -17,6 +17,8 @@ struct Options {
     restart_on_find: bool,
     /// Number of lines of history to display before matched line
     history_lines: u32,
+    /// Should a space be completely cleared before starting over?
+    clear_on_restart: bool,
     /// All the regexes that should be searched.  One display space will be created
     /// for each of these
     regexes: Vec<Regex>,
@@ -63,6 +65,10 @@ fn main() {
              .validator(u16_validator)
              .short("h")
              .long("history"))
+        .arg(Arg::with_name("clear_on_restart")
+             .help("When restarting display, clear the whole display region.")
+             .long("clear_on_restart")
+             .short("c"))
         .arg(Arg::with_name("restart_on_find")
              .help("Restart display each time REGEX is found again, without waiting for the screen to fill")
              .long("restart_on_find")
@@ -78,12 +84,14 @@ fn main() {
         .collect();
 
     let restart_on_find = matches.is_present("restart_on_find");
+    let clear_on_restart = matches.is_present("clear_on_restart");
     let history_lines = if matches.is_present("history_lines") {
         matches.value_of("history_lines").unwrap().parse().unwrap()
     } else { 0 };
 
     let opt = Options {
         restart_on_find: restart_on_find,
+        clear_on_restart: clear_on_restart,
         regexes: regexes,
         history_lines: history_lines,
     };
@@ -204,6 +212,13 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
 
                         if (s.state == State::Finding || opt.restart_on_find) && s.regex.is_match(&l) {
                             // Swapping to a new space.
+                            // Clear the space if desired
+                            if opt.clear_on_restart {
+                                for r in s.start..s.start+s.rows {
+                                    term.move_cursor_to(0, r as usize).unwrap();
+                                    term.clear_line().unwrap();
+                                }
+                            }
                             s.move_to(&mut term);
                             s.state = State::Printing;
                             changed_space = true;
