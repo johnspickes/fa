@@ -165,7 +165,7 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
     let mut next_line = 0;
     for r in opt.regexes.drain(..) {
         let rows = cmp::min(lines_per_space, rows_to_use - next_line);
-        let header_text = format!("[ {:?} ({}) ]", &r, &rows);
+        let header_text = format!("[ {:?} ]", &r);
         let full_header = repeat('-').take(3).chain(header_text.chars())
             .chain(repeat('-')).take((cols-1) as usize).collect::<String>() + "\n";
 
@@ -222,8 +222,9 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
                             s.move_to(&mut term);
                             s.state = State::Printing;
                             changed_space = true;
+                            lines_printed_this_space = 0;
                             term.write(s.header.as_bytes()).unwrap();
-                            lines_printed_this_space = 1;
+                            lines_printed_this_space += 1;
                             // Insert the history
                             for h in history.iter() {
                                 term.clear_line().unwrap();
@@ -233,13 +234,13 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
                         }
 
                         if s.state == State::Printing {
-                            term.clear_line().unwrap();
-                            term.write(print_string.as_bytes()).unwrap();
-                            lines_printed_this_space += 1;
-
                             // Have we reached the end of this space?
                             if lines_printed_this_space >= s.rows {
                                 s.state = State::Finding;
+                            } else {
+                                term.clear_line().unwrap();
+                                term.write(print_string.as_bytes()).unwrap();
+                                lines_printed_this_space += 1;
                             }
                         }
                     }
