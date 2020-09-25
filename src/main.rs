@@ -7,18 +7,14 @@ use regex::Regex;
 use std::fs::File;
 use std::io::Write;
 
-// Simplifying:
-// - The only time we move the cursor other than one line down is when a regex is found.  
-// - Ditch the relative cursor motion and use_lines - I never use it
-//    - With absolute cursor motion, we should be more resistant to stderr and other
-//      potentially interfering outputs that move the cursor on us without the program
-//      knowing
-
+/// Options collected from the command line
 struct Options {
     restart_on_find: bool,
     regexes: Vec<Regex>,
 }
 
+/// Validates u16 command line values
+#[allow(dead_code)]
 fn u16_validator(s: String) -> Result<(), String> {
     match s.parse::<u16>() {
         Ok(_) => Ok(()),
@@ -26,6 +22,8 @@ fn u16_validator(s: String) -> Result<(), String> {
     }
 }
 
+/// Validates regex command line values
+#[allow(dead_code)]
 fn regex_validator(s: String) -> Result<(), String> {
     match Regex::new(&s) {
         Ok(_) => Ok(()),
@@ -86,32 +84,39 @@ fn main() {
     }
 }
 
+/// State of each display space.
 #[derive(PartialEq, Clone, Debug)]
 enum State {
+    /// Searching for a regex match
     Finding,
+    /// Found a match, and printing lines - at most one space may have this state
     Printing,
 }
 
+/// Data for each display space
 #[derive(Debug)]
 struct Space {
-    start: i32,   // Starting row of this display space
-    rows: i32,    // number of rows in this space
-    regex: Regex, // regex which when matched will cause a switch to this space
-    state: State, // used to avoid re-starting in this space unless directed
-    header: String, // Header string to be printed at the top of the space
+    /// Starting row of this display space
+    start: i32,
+    /// number of rows in this space
+    rows: i32,
+    /// regex which when matched will cause a switch to this space
+    regex: Regex,
+    /// used to avoid re-starting in this space unless directed
+    state: State,
+    /// Header string to be printed at the top of the space
+    header: String,
 }
 
 impl Space {
     /// Move to the starting row within the space
-    fn move_to(
-        &self,
-        term: &mut console::Term,
-    ) -> i32 {
+    fn move_to( &self, term: &mut console::Term,) -> i32 {
         term.move_cursor_to(0, self.start as usize).unwrap();
         self.start
     }
 }
 
+/// Do the main work of reading the input and writing to the display
 fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
     let mut term = console::Term::stdout();
     let (rows, cols) = term.size();
