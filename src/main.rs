@@ -7,6 +7,8 @@ use regex::Regex;
 use std::fs::File;
 use std::io::Write;
 use std::collections::VecDeque;
+use std::iter::repeat;
+use std::cmp;
 
 /// Options collected from the command line
 struct Options {
@@ -140,7 +142,7 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
 
     term.clear_screen().unwrap();
 
-    let rows_to_use = rows - 1;
+    let rows_to_use = rows - 2;
 
     let mut history : VecDeque<String> = VecDeque::new();
 
@@ -154,19 +156,19 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
     let lines_per_space = rows_to_use / (opt.regexes.len() as u16);
     let mut next_line = 0;
     for r in opt.regexes.drain(..) {
-        let header_text = format!("[ {:?} ]", &r);
-        use std::iter::repeat;
+        let rows = cmp::min(lines_per_space, rows_to_use - next_line);
+        let header_text = format!("[ {:?} ({}) ]", &r, &rows);
         let full_header = repeat('-').take(3).chain(header_text.chars())
             .chain(repeat('-')).take((cols-1) as usize).collect::<String>() + "\n";
 
         display_spaces.push(Space {
-            start: next_line,
-            rows: (lines_per_space as i32),
+            start: next_line as i32,
+            rows: rows as i32,
             state: State::Finding,
             regex: r,
             header: full_header,
         });
-        next_line += lines_per_space as i32;
+        next_line += lines_per_space as u16;
     }
 
     // Draw headers, to separate spaces
