@@ -6,10 +6,17 @@ use clap::{App, Arg};
 use regex::Regex;
 use std::fs::File;
 use std::io::Write;
+use std::collections::VecDeque;
 
 /// Options collected from the command line
 struct Options {
+    /// Should display restart each time the regex is found, or should we fill out
+    /// the available space before triggering again?
     restart_on_find: bool,
+    /// Number of lines of history to display before matched line
+    history_lines: u32,
+    /// All the regexes that should be searched.  One display space will be created
+    /// for each of these
     regexes: Vec<Regex>,
 }
 
@@ -48,6 +55,12 @@ fn main() {
              .takes_value(true)
              .short("f")
              .long("file"))
+        .arg(Arg::with_name("history_lines")
+             .help("Number of history lines to display before matched lines, default zero")
+             .takes_value(true)
+             .validator(u16_validator)
+             .short("h")
+             .long("history"))
         .arg(Arg::with_name("restart_on_find")
              .help("Restart display each time REGEX is found again, without waiting for the screen to fill")
              .long("restart_on_find")
@@ -63,10 +76,14 @@ fn main() {
         .collect();
 
     let restart_on_find = matches.is_present("restart_on_find");
+    let history_lines = if matches.is_present("history_lines") {
+        matches.value_of("history_lines").unwrap().parse().unwrap()
+    } else { 0 };
 
     let opt = Options {
         restart_on_find: restart_on_find,
         regexes: regexes,
+        history_lines: history_lines,
     };
 
     match matches.value_of("INPUT") {
@@ -125,6 +142,13 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
 
     let rows_to_use = rows - 1;
 
+    let mut history : VecDeque<String> = VecDeque::new();
+
+    // Populate history with an appropriate number of blank lines.
+    for _ in 0..opt.history_lines {
+        history.push_back("\n".into());
+    }
+
     // Divide the available space up if there's more than one regex
     let mut display_spaces: Vec<Space> = Vec::new();
     let lines_per_space = rows_to_use / (opt.regexes.len() as u16);
@@ -163,6 +187,11 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
                     break;
                 } else {
                     // Got a line.
+                    let print_string: String = if l.chars().count() >= cols as usize {
+                        l.chars().take((cols - 1) as usize).collect::<String>() + "\n"
+                    } else {
+                        l.clone()
+                    };
                     for s in display_spaces.iter_mut() {
 
                         // If we've changed spaces this loop (to some other space, presumably)
@@ -178,15 +207,15 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
                             changed_space = true;
                             term.write(s.header.as_bytes()).unwrap();
                             lines_printed_this_space = 1;
+                            // Insert the history
+                            for h in history.iter() {
+                                term.write(h.as_bytes()).unwrap();
+                                lines_printed_this_space += 1;
+                            }
                         }
 
                         if s.state == State::Printing {
                             term.clear_line().unwrap();
-                            let print_string: String = if l.chars().count() >= cols as usize {
-                                l.chars().take((cols - 1) as usize).collect::<String>() + "\n"
-                            } else {
-                                l.clone()
-                            };
                             term.write(print_string.as_bytes()).unwrap();
                             lines_printed_this_space += 1;
 
@@ -194,6 +223,14 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
                             if lines_printed_this_space >= s.rows {
                                 s.state = State::Finding;
                             }
+                        }
+                    }
+
+                    // Put this line in the history
+                    if opt.history_lines > 0 {
+                        history.push_back(print_string);
+                        while history.len() > opt.history_lines as usize {
+                            history.pop_front();
                         }
                     }
                 }
