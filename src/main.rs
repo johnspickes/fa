@@ -211,6 +211,7 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
                             lines_printed_this_space = 1;
                             // Insert the history
                             for h in history.iter() {
+                                term.clear_line().unwrap();
                                 term.write(h.as_bytes()).unwrap();
                                 lines_printed_this_space += 1;
                             }
