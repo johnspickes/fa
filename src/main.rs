@@ -7,13 +7,14 @@ use regex::Regex;
 use std::fs::File;
 use std::io::Write;
 
+/// Options collected from the command line
 struct Options {
     restart_on_find: bool,
-    use_lines: bool,
-    lines_to_use: u16,
     regexes: Vec<Regex>,
 }
 
+/// Validates u16 command line values
+#[allow(dead_code)]
 fn u16_validator(s: String) -> Result<(), String> {
     match s.parse::<u16>() {
         Ok(_) => Ok(()),
@@ -21,6 +22,8 @@ fn u16_validator(s: String) -> Result<(), String> {
     }
 }
 
+/// Validates regex command line values
+#[allow(dead_code)]
 fn regex_validator(s: String) -> Result<(), String> {
     match Regex::new(&s) {
         Ok(_) => Ok(()),
@@ -49,13 +52,7 @@ fn main() {
              .help("Restart display each time REGEX is found again, without waiting for the screen to fill")
              .long("restart_on_find")
              .short("r"))
-        .arg(Arg::with_name("LINES")
-             .help("Use the specified number of lines to display, instead of clearing the screen and using it all")
-             .long("use_lines")
-             .short("l")
-             .validator(u16_validator)
-             .takes_value(true))
-        .get_matches();
+       .get_matches();
 
     // Unwrapping is appropriate here because REGEX is a required
     // argument and we shouldn't get here if it's not present.
@@ -67,19 +64,8 @@ fn main() {
 
     let restart_on_find = matches.is_present("restart_on_find");
 
-    let use_lines = matches.is_present("LINES");
-    let lines: u16 = if use_lines {
-        // Both unwraps are safe because we know use_lines is present, and
-        // the argument is validated by clap.
-        matches.value_of("LINES").unwrap().parse().unwrap()
-    } else {
-        0
-    };
-
     let opt = Options {
         restart_on_find: restart_on_find,
-        use_lines: use_lines,
-        lines_to_use: lines,
         regexes: regexes,
     };
 
@@ -98,129 +84,77 @@ fn main() {
     }
 }
 
-#[derive(PartialEq, Clone)]
+/// State of each display space.
+#[derive(PartialEq, Clone, Debug)]
 enum State {
+    /// Searching for a regex match
     Finding,
+    /// Found a match, and printing lines - at most one space may have this state
     Printing,
 }
 
-struct Cursor {
-    row: i32, // positive is down.  zero is home position
-}
-
-impl Cursor {
-    fn move_down(&mut self, term: &mut console::Term, rows: i32) -> std::io::Result<()> {
-        self.row += rows;
-        if rows >= 0 {
-            term.move_cursor_down(rows as usize)
-        } else {
-            term.move_cursor_up(-rows as usize)
-        }
-    }
-
-    #[allow(dead_code)]
-    fn move_up(&mut self, term: &mut console::Term, rows: i32) -> std::io::Result<()> {
-        self.move_down(term, -rows)
-    }
-
-    fn move_to(&mut self, term: &mut console::Term, target: i32) -> std::io::Result<()> {
-        let delta = target - self.row;
-        self.move_down(term, delta)
-    }
-
-    fn advance(&mut self) {
-        self.row += 1;
-    }
-}
-
+/// Data for each display space
 #[derive(Debug)]
 struct Space {
-    start: i32,   // Starting row of this display space
-    end: i32,     // Ending (inclusive) row
-    current: i32, // Current row, relative to start
+    /// Starting row of this display space
+    start: i32,
+    /// number of rows in this space
+    rows: i32,
+    /// regex which when matched will cause a switch to this space
+    regex: Regex,
+    /// used to avoid re-starting in this space unless directed
+    state: State,
+    /// Header string to be printed at the top of the space
+    header: String,
 }
 
 impl Space {
-    /// Move to a particular row within the space (relative to start)
-    fn move_to(
-        &mut self,
-        term: &mut console::Term,
-        c: &mut Cursor,
-        target: i32,
-    ) -> std::io::Result<()> {
-        let row = self.start + target;
-        self.current = target;
-        c.move_to(term, row)
-    }
-
-    /// bump up the current row
-    fn advance(&mut self, c: &mut Cursor) {
-        self.current += 1;
-        c.advance();
-    }
-
-    /// Go to the current row
-    fn restore(&mut self, term: &mut console::Term, c: &mut Cursor) -> std::io::Result<()> {
-        c.move_to(term, self.current + self.start)
-    }
-
-    /// Have we passed the end?
-    fn past_end(&mut self) -> bool {
-        self.current > (self.end - self.start)
+    /// Move to the starting row within the space
+    fn move_to( &self, term: &mut console::Term,) -> i32 {
+        term.move_cursor_to(0, self.start as usize).unwrap();
+        self.start
     }
 }
 
-fn search_and_display<T: std::io::BufRead>(input: &mut T, opt: Options) {
+/// Do the main work of reading the input and writing to the display
+fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
     let mut term = console::Term::stdout();
     let (rows, cols) = term.size();
 
-    if !opt.use_lines {
-        term.clear_screen().unwrap();
-    }
+    term.clear_screen().unwrap();
 
-    let mut crsr = Cursor { row: 0 };
-
-    let mut st: Vec<State> = Vec::new();
-    st.resize(opt.regexes.len(), State::Finding);
-
-    let rows_to_use = if opt.use_lines {
-        opt.lines_to_use
-    } else {
-        // Using rows-1 prevents the screen from scrolling when we reach the last line
-        (rows - 1)
-    };
+    let rows_to_use = rows - 1;
 
     // Divide the available space up if there's more than one regex
     let mut display_spaces: Vec<Space> = Vec::new();
     let lines_per_space = rows_to_use / (opt.regexes.len() as u16);
     let mut next_line = 0;
-    for i in 0..opt.regexes.len() {
+    for r in opt.regexes.drain(..) {
+        let header_text = format!("[ {:?} ]", &r);
+        use std::iter::repeat;
+        let full_header = repeat('-').take(3).chain(header_text.chars())
+            .chain(repeat('-')).take((cols-1) as usize).collect::<String>() + "\n";
+
         display_spaces.push(Space {
             start: next_line,
-            end: next_line
-                + (lines_per_space as i32)
-                + if i == opt.regexes.len() - 1 { -1 } else { -2 },
-            current: 0,
+            rows: (lines_per_space as i32),
+            state: State::Finding,
+            regex: r,
+            header: full_header,
         });
         next_line += lines_per_space as i32;
     }
 
-    let mut dashed_line = String::new();
-    for _ in 0..cols {
-        dashed_line.push('-');
+    // Draw headers, to separate spaces
+    for s in display_spaces.iter() {
+        s.move_to(&mut term);
+        term.write(s.header.as_bytes()).unwrap();
     }
-    dashed_line.push('\n');
 
-    // Draw dashed lines, if needed, to separate spaces
-    if display_spaces.len() > 1 {
-        for i in 0..display_spaces.len() - 1 {
-            crsr.move_to(&mut term, display_spaces[i].end + 1).unwrap();
-            term.write(dashed_line.as_bytes()).unwrap();
-            crsr.advance();
-        }
-    }
+    let mut lines_printed_this_space = 0;
 
     loop {
+        let mut changed_space = false;
         let mut l = String::new();
         match input.read_line(&mut l) {
             Ok(n) => {
@@ -229,16 +163,24 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, opt: Options) {
                     break;
                 } else {
                     // Got a line.
-                    for (i, r) in opt.regexes.iter().enumerate() {
-                        // If finding, or restarting on new finds, check for match
-                        if ((st[i] == State::Finding) || opt.restart_on_find) && r.is_match(&l) {
-                            // Move back up to the row where we started
-                            display_spaces[i].move_to(&mut term, &mut crsr, 0).unwrap();
-                            st[i] = State::Printing;
+                    for s in display_spaces.iter_mut() {
+
+                        // If we've changed spaces this loop (to some other space, presumably)
+                        // then we're not printing in this space anymore
+                        if changed_space {
+                            s.state = State::Finding;
                         }
 
-                        if st[i] == State::Printing {
-                            display_spaces[i].restore(&mut term, &mut crsr).unwrap();
+                        if (s.state == State::Finding || opt.restart_on_find) && s.regex.is_match(&l) {
+                            // Swapping to a new space.
+                            s.move_to(&mut term);
+                            s.state = State::Printing;
+                            changed_space = true;
+                            term.write(s.header.as_bytes()).unwrap();
+                            lines_printed_this_space = 1;
+                        }
+
+                        if s.state == State::Printing {
                             term.clear_line().unwrap();
                             let print_string: String = if l.chars().count() >= cols as usize {
                                 l.chars().take((cols - 1) as usize).collect::<String>() + "\n"
@@ -246,17 +188,11 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, opt: Options) {
                                 l.clone()
                             };
                             term.write(print_string.as_bytes()).unwrap();
-                            display_spaces[i].advance(&mut crsr);
-                            // Have we reached the end of the usable space?
-                            if display_spaces[i].past_end() {
-                                // Go back to finding
-                                st[i] = State::Finding;
-                                if i != display_spaces.len() - 1 {
-                                    // draw the dashed line again
-                                    crsr.move_to(&mut term, display_spaces[i].end + 1).unwrap();
-                                    term.write(dashed_line.as_bytes()).unwrap();
-                                    crsr.advance();
-                                }
+                            lines_printed_this_space += 1;
+
+                            // Have we reached the end of this space?
+                            if lines_printed_this_space >= s.rows {
+                                s.state = State::Finding;
                             }
                         }
                     }
