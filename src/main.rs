@@ -98,6 +98,7 @@ struct Space {
     rows: i32,    // number of rows in this space
     regex: Regex, // regex which when matched will cause a switch to this space
     state: State, // used to avoid re-starting in this space unless directed
+    header: String, // Header string to be printed at the top of the space
 }
 
 impl Space {
@@ -124,21 +125,25 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
     let lines_per_space = rows_to_use / (opt.regexes.len() as u16);
     let mut next_line = 0;
     for r in opt.regexes.drain(..) {
+        let header_text = format!("[ {:?} ]", &r);
+        use std::iter::repeat;
+        let full_header = repeat('-').take(3).chain(header_text.chars())
+            .chain(repeat('-')).take((cols-1) as usize).collect::<String>() + "\n";
+
         display_spaces.push(Space {
             start: next_line,
             rows: (lines_per_space as i32),
             state: State::Finding,
             regex: r,
+            header: full_header,
         });
         next_line += lines_per_space as i32;
     }
 
-    let dashed_line = "-".repeat((cols-1) as usize) + "\n";
-
-    // Draw dashed lines, if needed, to separate spaces
+    // Draw headers, to separate spaces
     for s in display_spaces.iter() {
         s.move_to(&mut term);
-        term.write(dashed_line.as_bytes()).unwrap();
+        term.write(s.header.as_bytes()).unwrap();
     }
 
     let mut lines_printed_this_space = 0;
@@ -166,7 +171,7 @@ fn search_and_display<T: std::io::BufRead>(input: &mut T, mut opt: Options) {
                             s.move_to(&mut term);
                             s.state = State::Printing;
                             changed_space = true;
-                            term.write(dashed_line.as_bytes()).unwrap();
+                            term.write(s.header.as_bytes()).unwrap();
                             lines_printed_this_space = 1;
                         }
 
